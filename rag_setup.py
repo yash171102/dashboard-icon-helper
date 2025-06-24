@@ -7,7 +7,7 @@ from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 
 # ---------- Constants ----------
-PDF_PATH = "car_manuals/lum_thar_2009_uk.pdf"  # Adjust path if needed
+PDF_PATH = "lum_thar_2009_uk.pdf"  # Adjust path if needed
 FAISS_INDEX_PATH = "faiss_data/faiss_index.index"
 TEXTS_PATH = "faiss_data/context_texts.pkl"
 EMBED_MOD = "all-MiniLM-L6-v2"  # ✅ Embedding model name
