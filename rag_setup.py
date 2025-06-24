@@ -13,7 +13,7 @@ import google.generativeai as genai
 
 # ---------- Configuration ----------
 GEMINI_API_KEY = "AIzaSyCzaDBuV0n13yr5CVY9ZsmtpmU-QEpKJMY"
-PDF_PATH = r"D:\car_telltale_bot\car_manuals\lum_thar_2009_uk.pdf"
+PDF_PATH = "lum_thar_2009_uk.pdf"
 FAISS_INDEX_PATH = r"D:\car_telltale_bot\vector_db\faiss.index"
 TEXTS_PATH = r"D:\car_telltale_bot\vector_db\texts.pkl"
 EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
