@@ -1,118 +1,80 @@
-
-
 import os
 import fitz  # PyMuPDF
-import uuid
-import re
-import time
-import pickle
 import faiss
-import numpy as np
+import pickle
 from sentence_transformers import SentenceTransformer
-import google.generativeai as genai
+import numpy as np
 
-# ---------- Configuration ----------
-GEMINI_API_KEY = "AIzaSyCzaDBuV0n13yr5CVY9ZsmtpmU-QEpKJMY"
-PDF_PATH = "lum_thar_2009_uk.pdf"
-FAISS_INDEX_PATH = r"D:\car_telltale_bot\vector_db\faiss.index"
-TEXTS_PATH = r"D:\car_telltale_bot\vector_db\texts.pkl"
-EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+# ----- Constants -----
+PDF_PATH = "car_manuals/lum_thar_2009_uk.pdf"  # Update if needed
+FAISS_INDEX_PATH = "faiss_data/faiss_index.index"
+TEXTS_PATH = "faiss_data/context_texts.pkl"
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-# ---------- STEP 1: Extract Text from PDF ----------
+# ----- Step 1: Extract Text from PDF -----
 def extract_text_from_pdf(pdf_path):
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF not found at path: {pdf_path}")
     doc = fitz.open(pdf_path)
     full_text = ""
-    for i, page in enumerate(doc):
-        text = page.get_text()
-        if text.strip():
-            full_text += text + "\n"
-        if (i + 1) % 10 == 0 or (i + 1) == len(doc):
-            print(f"✅ Extracted text from page {i+1}/{len(doc)}")
+    for page in doc:
+        full_text += page.get_text()
     return full_text
 
-# ---------- STEP 2: Chunk Text ----------
-def chunk_text(text, max_chunk_size=500):
-    sentences = re.split(r'(?<=[.?!])\s+', text)
-    chunks, chunk = [], ""
-    for sentence in sentences:
-        if len(chunk) + len(sentence) <= max_chunk_size:
-            chunk += sentence + " "
-        else:
-            chunks.append(chunk.strip())
-            chunk = sentence + " "
-    if chunk:
-        chunks.append(chunk.strip())
+# ----- Step 2: Chunking Text -----
+def chunk_text(text, max_length=500):
+    words = text.split()
+    chunks = []
+    current_chunk = []
+    current_length = 0
+
+    for word in words:
+        current_chunk.append(word)
+        current_length += len(word) + 1  # +1 for space
+        if current_length >= max_length:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = []
+            current_length = 0
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
     return chunks
 
-# ---------- STEP 3: Create FAISS Index ----------
+# ----- Step 3: Create FAISS Index -----
 def create_faiss_index(pdf_path):
     print("📄 Reading PDF...")
     text = extract_text_from_pdf(pdf_path)
 
     print("🧱 Chunking text...")
     chunks = chunk_text(text)
-    print(f"📦 Total chunks created: {len(chunks)}")
 
-    print("⚙️ Generating embeddings...")
-    embeddings = EMBED_MODEL.encode(chunks, show_progress_bar=True)
-    embedding_dim = embeddings.shape[1]
+    print("🔍 Generating embeddings...")
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = model.encode(chunks)
 
     print("🗂️ Creating FAISS index...")
-    index = faiss.IndexFlatL2(embedding_dim)
+    index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(np.array(embeddings))
 
-    os.makedirs(os.path.dirname(FAISS_INDEX_PATH), exist_ok=True)
-    faiss.write_index(index, FAISS_INDEX_PATH)
+    # Ensure faiss_data directory exists
+    output_dir = os.path.dirname(FAISS_INDEX_PATH)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
-    with open(TEXTS_PATH, 'wb') as f:
+    faiss.write_index(index, FAISS_INDEX_PATH)
+    with open(TEXTS_PATH, "wb") as f:
         pickle.dump(chunks, f)
 
-    print("✅ FAISS index and texts saved.")
+    print("✅ FAISS index created and saved.")
     return index, chunks
 
-# ---------- STEP 4: Load FAISS Index ----------
+# ----- Step 4: Load FAISS Index -----
 def load_faiss_index():
     if not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(TEXTS_PATH):
         return create_faiss_index(PDF_PATH)
+
+    print("📦 Loading existing FAISS index and texts...")
     index = faiss.read_index(FAISS_INDEX_PATH)
-    with open(TEXTS_PATH, 'rb') as f:
+    with open(TEXTS_PATH, "rb") as f:
         texts = pickle.load(f)
     return index, texts
-
-# ---------- STEP 5: Retrieve Context ----------
-def retrieve_context(query, index, texts, top_k=5):
-    query_embedding = EMBED_MODEL.encode([query])
-    D, I = index.search(query_embedding, top_k)
-    return [texts[i] for i in I[0]]
-
-def ask_gemini(query, context_chunks, icon_desc=None):
-    icon_section = f"Icon Description:\n{icon_desc}\n" if icon_desc else ""
-    full_prompt = f"""
-You are a car manual assistant. Use the following context from a car's user manual to answer the question.
-
-{icon_section}
-Context:
-{chr(10).join(context_chunks)}
-
-Question:
-{query}
-"""
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    response = model.generate_content(full_prompt)
-    return response.text.strip()
-
-# ---------- MAIN CLI ----------
-if __name__ == "__main__":
-    index, texts = create_faiss_index(PDF_PATH)
-    while True:
-        query = input("\n❓ Ask your question (or type 'exit'): ")
-        if query.lower() in ["exit", "quit"]:
-            break
-        print("🔎 Retrieving context...")
-        context = retrieve_context(query, index, texts)
-        print("🤖 Asking Gemini...")
-        answer = ask_gemini(query, context)
-        print("\n🧠 Answer:")
-        print(answer)
