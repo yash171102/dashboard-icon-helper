@@ -2,25 +2,28 @@ import os
 import fitz  # PyMuPDF
 import faiss
 import pickle
-from sentence_transformers import SentenceTransformer
 import numpy as np
+from sentence_transformers import SentenceTransformer
+import google.generativeai as genai
 
-# ----- Constants -----
-PDF_PATH = "car_manuals/lum_thar_2009_uk.pdf"  # Update if needed
+# ---------- Constants ----------
+PDF_PATH = "car_manuals/lum_thar_2009_uk.pdf"  # Adjust as needed
 FAISS_INDEX_PATH = "faiss_data/faiss_index.index"
 TEXTS_PATH = "faiss_data/context_texts.pkl"
 
-# ----- Step 1: Extract Text from PDF -----
+# ---------- Step 1: Extract Text from PDF ----------
 def extract_text_from_pdf(pdf_path):
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found at path: {pdf_path}")
     doc = fitz.open(pdf_path)
     full_text = ""
-    for page in doc:
+    for i, page in enumerate(doc):
         full_text += page.get_text()
+        if (i + 1) % 10 == 0 or (i + 1) == len(doc):
+            print(f"✅ Extracted text from page {i+1}/{len(doc)}")
     return full_text
 
-# ----- Step 2: Chunking Text -----
+# ---------- Step 2: Chunking Text ----------
 def chunk_text(text, max_length=500):
     words = text.split()
     chunks = []
@@ -29,7 +32,7 @@ def chunk_text(text, max_length=500):
 
     for word in words:
         current_chunk.append(word)
-        current_length += len(word) + 1  # +1 for space
+        current_length += len(word) + 1
         if current_length >= max_length:
             chunks.append(" ".join(current_chunk))
             current_chunk = []
@@ -38,9 +41,10 @@ def chunk_text(text, max_length=500):
     if current_chunk:
         chunks.append(" ".join(current_chunk))
 
+    print(f"📦 Total chunks created: {len(chunks)}")
     return chunks
 
-# ----- Step 3: Create FAISS Index -----
+# ---------- Step 3: Create FAISS Index ----------
 def create_faiss_index(pdf_path):
     print("📄 Reading PDF...")
     text = extract_text_from_pdf(pdf_path)
@@ -48,15 +52,15 @@ def create_faiss_index(pdf_path):
     print("🧱 Chunking text...")
     chunks = chunk_text(text)
 
-    print("🔍 Generating embeddings...")
+    print("⚙️ Generating embeddings...")
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = model.encode(chunks)
 
     print("🗂️ Creating FAISS index...")
-    index = faiss.IndexFlatL2(embeddings.shape[1])
+    embedding_dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(embedding_dim)
     index.add(np.array(embeddings))
 
-    # Ensure faiss_data directory exists
     output_dir = os.path.dirname(FAISS_INDEX_PATH)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
@@ -68,13 +72,26 @@ def create_faiss_index(pdf_path):
     print("✅ FAISS index created and saved.")
     return index, chunks
 
-# ----- Step 4: Load FAISS Index -----
+# ---------- Step 4: Load FAISS Index ----------
 def load_faiss_index():
     if not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(TEXTS_PATH):
         return create_faiss_index(PDF_PATH)
 
-    print("📦 Loading existing FAISS index and texts...")
+    print("📥 Loading existing FAISS index and texts...")
     index = faiss.read_index(FAISS_INDEX_PATH)
     with open(TEXTS_PATH, "rb") as f:
         texts = pickle.load(f)
     return index, texts
+
+# ---------- Step 5: RAG Functions ----------
+def retrieve_context(query, faiss_index, context_texts, top_k=5):
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    query_embedding = model.encode([query])
+    D, I = faiss_index.search(np.array(query_embedding), top_k)
+    results = [context_texts[i] for i in I[0]]
+    return "\n".join(results)
+
+def ask_gemini(prompt, model_name="models/gemini-1.5-flash"):
+    model = genai.GenerativeModel(model_name)
+    response = model.generate_content(prompt)
+    return response.text.strip()
