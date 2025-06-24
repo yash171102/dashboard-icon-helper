@@ -4,7 +4,7 @@ import streamlit as st
 from PIL import Image
 import io
 import google.generativeai as genai
-from rag_setup import retrieve_context, ask_gemini, load_faiss_index, EMBED_MODEL
+from rag_setup import retrieve_context, ask_gemini, load_faiss_index
 
 # 🔑 Gemini API Key
 GEMINI_API_KEY = "AIzaSyCzaDBuV0n13yr5CVY9ZsmtpmU-QEpKJMY"
