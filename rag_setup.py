@@ -7,14 +7,15 @@ from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 
 # ---------- Constants ----------
-PDF_PATH = "car_manuals/lum_thar_2009_uk.pdf"  # Adjust as needed
+PDF_PATH = "car_manuals/lum_thar_2009_uk.pdf"  # Adjust path if needed
 FAISS_INDEX_PATH = "faiss_data/faiss_index.index"
 TEXTS_PATH = "faiss_data/context_texts.pkl"
+EMBED_MOD = "all-MiniLM-L6-v2"  # ✅ Embedding model name
 
 # ---------- Step 1: Extract Text from PDF ----------
 def extract_text_from_pdf(pdf_path):
     if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"PDF not found at path: {pdf_path}")
+        raise FileNotFoundError(f"🚫 PDF file not found at: {pdf_path}")
     doc = fitz.open(pdf_path)
     full_text = ""
     for i, page in enumerate(doc):
@@ -23,7 +24,7 @@ def extract_text_from_pdf(pdf_path):
             print(f"✅ Extracted text from page {i+1}/{len(doc)}")
     return full_text
 
-# ---------- Step 2: Chunking Text ----------
+# ---------- Step 2: Chunk Text ----------
 def chunk_text(text, max_length=500):
     words = text.split()
     chunks = []
@@ -53,7 +54,7 @@ def create_faiss_index(pdf_path):
     chunks = chunk_text(text)
 
     print("⚙️ Generating embeddings...")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = SentenceTransformer(EMBED_MOD)
     embeddings = model.encode(chunks)
 
     print("🗂️ Creating FAISS index...")
@@ -61,9 +62,9 @@ def create_faiss_index(pdf_path):
     index = faiss.IndexFlatL2(embedding_dim)
     index.add(np.array(embeddings))
 
-    output_dir = os.path.dirname(FAISS_INDEX_PATH)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    dir_path = os.path.dirname(FAISS_INDEX_PATH)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
 
     faiss.write_index(index, FAISS_INDEX_PATH)
     with open(TEXTS_PATH, "wb") as f:
@@ -77,20 +78,21 @@ def load_faiss_index():
     if not os.path.exists(FAISS_INDEX_PATH) or not os.path.exists(TEXTS_PATH):
         return create_faiss_index(PDF_PATH)
 
-    print("📥 Loading existing FAISS index and texts...")
+    print("📥 Loading existing FAISS index and context...")
     index = faiss.read_index(FAISS_INDEX_PATH)
     with open(TEXTS_PATH, "rb") as f:
         texts = pickle.load(f)
     return index, texts
 
-# ---------- Step 5: RAG Functions ----------
+# ---------- Step 5: Retrieve Context ----------
 def retrieve_context(query, faiss_index, context_texts, top_k=5):
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = SentenceTransformer(EMBED_MOD)
     query_embedding = model.encode([query])
     D, I = faiss_index.search(np.array(query_embedding), top_k)
     results = [context_texts[i] for i in I[0]]
     return "\n".join(results)
 
+# ---------- Step 6: Ask Gemini ----------
 def ask_gemini(prompt, model_name="models/gemini-1.5-flash"):
     model = genai.GenerativeModel(model_name)
     response = model.generate_content(prompt)
